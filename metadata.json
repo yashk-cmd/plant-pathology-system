@@ -1,0 +1,6 @@
+{
+  "name": "Plant Pathology Identification System",
+  "description": "A modern web application for detecting plant leaf diseases from images using deep learning CNN models.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

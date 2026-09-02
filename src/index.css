@@ -1,0 +1,111 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-display: "Outfit", system-ui, -apple-system, sans-serif;
+}
+
+/* Natural Tones custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #EFF3ED;
+}
+::-webkit-scrollbar-thumb {
+  background: #C4D2C1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #9DB499;
+}
+
+@keyframes scan-line {
+  0% {
+    top: 0%;
+    opacity: 0.85;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    top: 100%;
+    opacity: 0.85;
+  }
+}
+
+@keyframes float-leaf-1 {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(-16px) rotate(6deg) scale(1.04);
+  }
+}
+
+@keyframes float-leaf-2 {
+  0%, 100% {
+    transform: translateY(0px) rotate(0deg) scale(1);
+  }
+  50% {
+    transform: translateY(14px) rotate(-8deg) scale(0.96);
+  }
+}
+
+@keyframes float-leaf-3 {
+  0%, 100% {
+    transform: translate(0px, 0px) rotate(0deg);
+  }
+  33% {
+    transform: translate(8px, -12px) rotate(4deg);
+  }
+  66% {
+    transform: translate(-8px, -6px) rotate(-5deg);
+  }
+}
+
+@keyframes aura-drift {
+  0%, 100% {
+    transform: scale(1) translate(0, 0);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1.15) translate(10px, -15px);
+    opacity: 0.55;
+  }
+}
+
+@keyframes shimmer-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-scan-line {
+  animation: scan-line 2.2s ease-in-out infinite alternate;
+}
+
+.animate-float-1 {
+  animation: float-leaf-1 10s ease-in-out infinite;
+}
+
+.animate-float-2 {
+  animation: float-leaf-2 13s ease-in-out infinite;
+}
+
+.animate-float-3 {
+  animation: float-leaf-3 16s ease-in-out infinite;
+}
+
+.animate-aura-drift {
+  animation: aura-drift 12s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer-sweep 2s infinite;
+}
+
