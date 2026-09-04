@@ -23,7 +23,7 @@ import {
  *     and return a JSON object (e.g. `{ disease, confidence, description }`).
  * ============================================================================
  */
-export const USE_MOCK: boolean = true;
+export const USE_MOCK: boolean = false;
 
 /**
  * Configurable REST API endpoint URL for your model server.
