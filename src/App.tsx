@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { GoogleOAuthProvider } from '@react-oauth/google';
 import { Navbar } from './components/Navbar';
 import { LoginPage } from './components/LoginPage';
 import { SignupPage } from './components/SignupPage';
@@ -13,6 +14,11 @@ import { predictDisease } from './services/diseaseModelService';
 import { BrandLogo } from './components/BrandLogo';
 import { Leaf, ShieldCheck, Sprout, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+
+// Replace this with your copied Client ID string from Google Cloud Console
+const GOOGLE_CLIENT_ID = 
+  import.meta.env.VITE_GOOGLE_CLIENT_ID || 
+  "890439483208-na6ijt26td75mlgb4asus6pldj4ujlqi.apps.googleusercontent.com";
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -272,8 +278,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }
