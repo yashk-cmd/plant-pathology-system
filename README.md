@@ -73,7 +73,10 @@ npm run dev
 Open http://localhost:3000 (or http://localhost:5173) in your browser.
 
 🏗️ Project Structure
+
 Plaintext
+
+
 src/
 ├── components/          # Reusable UI components & Page views
 │   ├── AboutPage.tsx    # Model metrics & photography guidelines
@@ -92,10 +95,12 @@ src/
 
 
 🌐 Deployment
+
 This frontend is configured for instant continuous deployment on Vercel.
 1.Connect your GitHub repository to Vercel.
 2.Add VITE_MODEL_API_URL and VITE_GOOGLE_CLIENT_ID to your Vercel Project Environment Variables.
 3.Add https://plant-pathology-system.vercel.app to Authorized JavaScript origins in Google Cloud Console under your OAuth Web Client settings.
 
 📄 License
+
 Distributed under the MIT License. See LICENSE for more information.
