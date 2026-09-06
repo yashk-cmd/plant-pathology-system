@@ -35,19 +35,23 @@ export const MODEL_API_ENDPOINT: string =
 
 /**
  * Minimum confidence required from the disease classification model.
- * If the top softmax prediction probability is below this threshold (e.g. 70%),
+ * If the top softmax prediction probability is below this threshold,
  * the system withholds diagnosis to prevent hallucinating on non-leaf or
- * ambiguous images.
- * 
- * TODO [Plug-in]: Calibrate this value against your production model's ROC / PR curve.
+ * ambiguous images. Kept in sync with the backend's own CONFIDENCE_THRESHOLD
+ * (currently 90.0 in app.py) as a secondary safeguard — the primary
+ * safeguard is the explicit `result: "rejected"` check in
+ * callExternalModelApi() below, since the backend already enforces this
+ * threshold itself.
  */
-export const MIN_CONFIDENCE_THRESHOLD = 70.0;
+export const MIN_CONFIDENCE_THRESHOLD = 90.0;
 
 /**
  * Generic shape expected from an external disease prediction API endpoint.
  * Agnostic to backend frameworks (FastAPI, Flask, TorchServe, TF Serving, etc.)
  */
 export interface ExternalModelApiResponse {
+  result?: string; // "success" | "rejected" — set by our Flask backend
+
   disease?: string;
   prediction?: string;
   label?: string;
@@ -59,6 +63,8 @@ export interface ExternalModelApiResponse {
   confidenceScore?: number;
   score?: number;
   probability?: number;
+
+  message?: string; // rejection message from the backend
 
   description?: string;
   plantSpecies?: string;
@@ -346,15 +352,10 @@ const PLANT_PATHOLOGY_DATABASE: DiseaseKnowledge[] = [
  * ============================================================================
  * PLACEHOLDER: Leaf vs. Non-Leaf Pre-Check (Leaf Classifier)
  * ============================================================================
- * NOTE FOR INTEGRATION:
- * This is a lightweight temporary client-side heuristic stand-in that runs
- * BEFORE the disease classification model. It samples image pixel color
- * distribution (botanical green/yellow/brown foliar tones) and filename cues.
- *
- * TODO [Plug-in]: Replace this placeholder with:
- * - A lightweight binary CNN classifier (e.g. MobileNetV3 "leaf vs non-leaf")
- * - A client-side ONNX Runtime / TensorFlow.js binary pre-filter
- * - A server-side object detection bounding box model confirming leaf presence
+ * NOTE: This client-side heuristic only runs in MOCK mode. When USE_MOCK is
+ * false, the real guardrail lives server-side in the Flask backend
+ * (is_likely_leaf_image + CONFIDENCE_THRESHOLD in app.py), since that's
+ * where the real model lives.
  * ============================================================================
  */
 export async function isLikelyLeafImage(imageFile: File): Promise<{
@@ -364,7 +365,6 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
 }> {
   const lowerName = imageFile.name.toLowerCase();
 
-  // Test keyword overrides for easy manual / unit testing
   if (
     lowerName.includes('nonleaf') ||
     lowerName.includes('non-leaf') ||
@@ -386,7 +386,6 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
     };
   }
 
-  // Botanical leaf keywords pass directly for verified sample files
   if (
     lowerName.includes('leaf') ||
     lowerName.includes('tomato') ||
@@ -407,7 +406,6 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
     };
   }
 
-  // Basic client-side pixel heuristic (analyzes small 32x32 offscreen render)
   try {
     const objectUrl = URL.createObjectURL(imageFile);
     const img = new Image();
@@ -441,17 +439,13 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
       const g = imgData.data[i + 1];
       const b = imgData.data[i + 2];
 
-      // Green chlorophyll tones
       const isGreen = g > 45 && g > r * 0.92 && g > b * 1.05;
-      // Chlorotic yellow / senescent tones
       const isYellowChlorotic = r > 85 && g > 75 && b < 110 && Math.abs(r - g) < 65;
-      // Necrotic brown lesion tones
       const isBrownLesion = r > 50 && r < 170 && g > 35 && g < 135 && b < 90 && r > b && g > b;
 
       if (isGreen || isYellowChlorotic || isBrownLesion) {
         botanicalPixels++;
       } else if (b > r + 35 && b > g + 25) {
-        // High blue dominance (sky, blue cars, blue screen)
         nonPlantPixels++;
       }
     }
@@ -459,7 +453,6 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
     const botanicalRatio = botanicalPixels / totalPixels;
     const blueDominanceRatio = nonPlantPixels / totalPixels;
 
-    // If image has very low botanical tones or is overwhelmingly blue/artificial
     if (botanicalRatio < 0.12 || blueDominanceRatio > 0.65) {
       return {
         isLeaf: false,
@@ -474,7 +467,6 @@ export async function isLikelyLeafImage(imageFile: File): Promise<{
       botanicalRatio
     };
   } catch {
-    // If pixel parsing fails for any reason, default to allowing with model confidence safety check
     return { isLeaf: true, reason: 'Heuristic skipped due to image processing fallback' };
   }
 }
@@ -522,7 +514,6 @@ function resolveDiseaseKnowledge(
     };
   }
 
-  // Fallback for custom model classes not in default PlantVillage taxonomy
   const isHealthy = cleanName.includes('healthy');
   return {
     diseaseName: diseaseName,
@@ -572,7 +563,6 @@ async function callExternalModelApi(
   const startTime = performance.now();
 
   const formData = new FormData();
-  // Provide common multipart field keys ('file' and 'image') for maximum framework interoperability
   formData.append('file', imageFile);
   formData.append('image', imageFile);
 
@@ -601,6 +591,39 @@ async function callExternalModelApi(
   const data: ExternalModelApiResponse = await response.json();
   const inferenceDurationMs = Math.round(performance.now() - startTime);
 
+  // --------------------------------------------------------------------------
+  // STEP 1 (FIX): Explicitly honor the backend's own rejection decision.
+  // Our Flask backend already runs the leaf pre-check AND the confidence
+  // threshold server-side, and sets `result: "rejected"` when either fails.
+  // Previously this function ignored that flag and re-derived its own guess
+  // from the confidence number using a DIFFERENT (lower) threshold, which
+  // let borderline non-leaf images slip through as fake "successful"
+  // predictions. Checking `data.result` directly fixes that.
+  // --------------------------------------------------------------------------
+  if (data.result === 'rejected') {
+    const rejection: UnrecognizedLeafResult = {
+      id: 'rejected-' + Math.random().toString(36).substring(2, 9),
+      reason: 'low_confidence',
+      headline: 'Unable to Identify a Plant Disease',
+      message:
+        data.message ||
+        'Unable to confidently identify a plant disease in this image — please upload a clear photo of a single leaf.',
+      confidenceScore: data.confidence,
+      thresholdApplied: MIN_CONFIDENCE_THRESHOLD,
+      imageUrl: imageUrl,
+      analyzedAt: new Date().toISOString(),
+      modelDetails: {
+        architecture: data.modelDetails?.architecture || 'Custom REST API Model Endpoint',
+        inferenceTimeMs: data.modelDetails?.inferenceTimeMs || inferenceDurationMs
+      }
+    };
+
+    return {
+      isRecognizedLeaf: false,
+      rejection
+    };
+  }
+
   // Extract disease name with flexible property resolution
   const rawDisease =
     data.disease ||
@@ -619,13 +642,13 @@ async function callExternalModelApi(
     data.probability ??
     0;
 
-  // Auto-normalize if model returned [0.0, 1.0] probability scale instead of [0, 100]
   if (rawConfidence > 0 && rawConfidence <= 1.0) {
     rawConfidence = rawConfidence * 100;
   }
   const confidenceScore = Math.round(rawConfidence * 10) / 10;
 
-  // STEP: Check against confidence threshold
+  // STEP 2: Secondary safeguard — in case a backend response ever omits
+  // `result` but still has low confidence, still catch it here.
   if (confidenceScore < MIN_CONFIDENCE_THRESHOLD) {
     const rejection: UnrecognizedLeafResult = {
       id: 'lowconf-' + Math.random().toString(36).substring(2, 9),
@@ -653,7 +676,6 @@ async function callExternalModelApi(
     };
   }
 
-  // Resolve or enrich disease pathology knowledge
   const knowledge = resolveDiseaseKnowledge(
     rawDisease,
     data.description,
@@ -705,14 +727,10 @@ async function runMockPredictionPipeline(
   imageFile: File,
   imageUrl: string
 ): Promise<DiagnosticResult> {
-  // --------------------------------------------------------------------------
-  // STEP 1: Lightweight Leaf Pre-check (isLikelyLeafImage)
-  // --------------------------------------------------------------------------
   const precheck = await isLikelyLeafImage(imageFile);
 
   if (!precheck.isLeaf) {
-    // Short-circuit: Do not call disease classification model
-    await new Promise((resolve) => setTimeout(resolve, 800)); // Brief UX scan delay
+    await new Promise((resolve) => setTimeout(resolve, 800));
 
     const rejection: UnrecognizedLeafResult = {
       id: 'precheck-' + Math.random().toString(36).substring(2, 9),
@@ -738,14 +756,10 @@ async function runMockPredictionPipeline(
     };
   }
 
-  // --------------------------------------------------------------------------
-  // STEP 2: Simulated Disease Model Inference Latency
-  // --------------------------------------------------------------------------
   await new Promise((resolve) => setTimeout(resolve, 1800));
 
   const lowerName = imageFile.name.toLowerCase();
 
-  // Test triggers for low-confidence scenarios
   const isLowConfidenceTest =
     lowerName.includes('ambiguous') ||
     lowerName.includes('low-conf') ||
@@ -756,38 +770,32 @@ async function runMockPredictionPipeline(
   let selectedKnowledge: DiseaseKnowledge;
 
   if (lowerName.includes('tomato') || lowerName.includes('early') || lowerName.includes('blight')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[0]; // Tomato Early Blight
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[0];
   } else if (lowerName.includes('potato') || lowerName.includes('late')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[1]; // Potato Late Blight
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[1];
   } else if (lowerName.includes('pepper') || lowerName.includes('bacterial') || lowerName.includes('spot')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[2]; // Bell Pepper Bacterial Spot
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[2];
   } else if (lowerName.includes('apple') || lowerName.includes('rot')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[3]; // Apple Black Rot
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[3];
   } else if (lowerName.includes('corn') || lowerName.includes('rust')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[4]; // Corn Common Rust
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[4];
   } else if (lowerName.includes('grape') || lowerName.includes('mildew')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[5]; // Grape Powdery Mildew
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[5];
   } else if (lowerName.includes('healthy') || lowerName.includes('strawberry')) {
-    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[6]; // Healthy Strawberry
+    selectedKnowledge = PLANT_PATHOLOGY_DATABASE[6];
   } else {
     const hash = (imageFile.name.length * 37 + imageFile.size) % PLANT_PATHOLOGY_DATABASE.length;
     selectedKnowledge = PLANT_PATHOLOGY_DATABASE[hash];
   }
 
-  // Compute confidence score
   let confidenceScore: number;
   if (isLowConfidenceTest) {
-    // Generates 48.0% - 63.5% (strictly below the 70.0% threshold)
     confidenceScore = Math.round((52.0 + (imageFile.size % 120) / 10) * 10) / 10;
   } else {
-    // Standard high confidence (89.5% - 98.8%)
     const baseConfidence = 91.5 + ((imageFile.size % 70) / 10);
     confidenceScore = Math.min(99.4, Math.round(baseConfidence * 10) / 10);
   }
 
-  // --------------------------------------------------------------------------
-  // STEP 3: Confidence Threshold Evaluation
-  // --------------------------------------------------------------------------
   if (confidenceScore < MIN_CONFIDENCE_THRESHOLD) {
     const rejection: UnrecognizedLeafResult = {
       id: 'lowconf-' + Math.random().toString(36).substring(2, 9),
@@ -815,9 +823,6 @@ async function runMockPredictionPipeline(
     };
   }
 
-  // --------------------------------------------------------------------------
-  // STEP 4: Confident Disease Prediction Output
-  // --------------------------------------------------------------------------
   const otherDiseases = PLANT_PATHOLOGY_DATABASE.filter(
     (d) => d.commonName !== selectedKnowledge.commonName
   );
@@ -864,15 +869,8 @@ async function runMockPredictionPipeline(
  * ============================================================================
  * PREDICT DISEASE (Primary Unified Async Inference Entrypoint)
  * ============================================================================
- * Refactored single entrypoint for disease prediction:
- * - When `USE_MOCK = true`: Executes realistic local CNN simulation with
- *   botanical pre-check, confidence calculation, and threshold enforcement.
- * - When `USE_MOCK = false`: Calls your external model backend REST API
- *   (e.g., FastAPI, Flask, TorchServe, Express) via POST multipart/form-data.
- * ============================================================================
  */
 export async function predictDisease(imageFile: File): Promise<DiagnosticResult> {
-  // Validate that the file is indeed a JPEG / JPG
   const fileExt = imageFile.name.split('.').pop()?.toLowerCase();
   const validExtensions = ['jpg', 'jpeg'];
   const isJpegMime = imageFile.type === 'image/jpeg' || imageFile.type === 'image/pjpeg';
@@ -891,4 +889,3 @@ export async function predictDisease(imageFile: File): Promise<DiagnosticResult>
 
   return callExternalModelApi(imageFile, imageUrl);
 }
-
