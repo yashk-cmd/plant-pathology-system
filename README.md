@@ -51,3 +51,51 @@ Ensure you have the following installed on your machine:
    ```bash
    git clone [https://github.com/yashk-cmd/plant-pathology-system.git](https://github.com/yashk-cmd/plant-pathology-system.git)
    cd plant-pathology-system
+
+1.   Install dependencies:
+
+Bash
+npm install
+
+2.Configure Environment Variables:
+Create a .env.local file in the root directory and configure the following variables:
+
+Code snippet
+# Plant Disease Model Backend Endpoint
+VITE_MODEL_API_URL=[https://plant-backend-z74c.onrender.com/predict](https://plant-backend-z74c.onrender.com/predict)
+
+# Google OAuth Client ID
+VITE_GOOGLE_CLIENT_ID=890439483208-na6ijt26td75mlgb4asus6pldj4ujlqi.apps.googleusercontent.com
+
+3.Run local development server:
+Bash
+npm run dev
+Open http://localhost:3000 (or http://localhost:5173) in your browser.
+
+🏗️ Project Structure
+Plaintext
+src/
+├── components/          # Reusable UI components & Page views
+│   ├── AboutPage.tsx    # Model metrics & photography guidelines
+│   ├── HistoryPage.tsx  # Specimen diagnostic logs
+│   ├── LoginPage.tsx    # Secure sign-in with Google OAuth
+│   ├── Navbar.tsx       # Main navigation header
+│   ├── ResultCard.tsx   # Diagnostic output & treatment tabs
+│   ├── UploadZone.tsx   # Drag-and-drop uploader & live scanner HUD
+│   └── ...
+├── context/             # Global React state (AuthContext)
+├── services/            # API integration & prediction services
+│   ├── authService.ts
+│   └── diseaseModelService.ts
+├── types/               # TypeScript interfaces & types
+└── utils/               # Animation helper presets (Framer Motion)
+
+
+🌐 Deployment
+This frontend is configured for instant continuous deployment on Vercel.
+1.Connect your GitHub repository to Vercel.
+2.Add VITE_MODEL_API_URL and VITE_GOOGLE_CLIENT_ID to your Vercel Project Environment Variables.
+3.Add https://plant-pathology-system.vercel.app to Authorized JavaScript origins in Google Cloud Console under your OAuth Web Client settings.
+
+📄 License
+Distributed under the MIT License. See LICENSE for more information.
